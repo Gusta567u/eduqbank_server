@@ -134,6 +134,10 @@ def _generate_with_pypandoc(
     include_gabarito: bool = True,
     use_resposta_gabarito: bool = False,
     gabarito_option: Optional[str] = None,
+    test_name: str = "",
+    teacher_name: str = "",
+    test_date: str = "",
+    instructions: str = "",
 ) -> Optional[bytes]:
     """Use pypandoc to convert HTML (with LaTeX) to PDF/DOCX using installed Pandoc and MiKTeX. Returns bytes or None."""
     if pypandoc is None:
@@ -143,12 +147,20 @@ def _generate_with_pypandoc(
             "<meta charset='utf-8'/>"
             "<style>body{font-family: Arial, sans-serif;margin:40px;} img{max-width:100%;}</style>"
         )
-        # Cabeçalho padrão
+        safe_test_name = (test_name or "").strip()
+        safe_instructions = (instructions or "").strip()
+        safe_teacher = (teacher_name or "").strip()
+        safe_date = (test_date or "").strip()
+        teacher_field = safe_teacher if safe_teacher else "__________________"
+        date_field = safe_date if safe_date else "____/____/______"
+
+        # Cabeçalho padrão: começa em Professor/Aluno/Data/Nota (nada acima disso)
         body_parts = [
-            "<h2 style='text-align:center'>INSTITUTO FEDERAL – Sistema de Avaliação</h2>",
-            "<h1 style='text-align:center'>PROVA</h1>",
-            "<div>Professor(a): __________________ &nbsp;&nbsp; Turma: ______ &nbsp;&nbsp; Data: ____/____/______ &nbsp;&nbsp; Nota: ______</div>",
+            f"<div>Professor(a): {teacher_field} &nbsp;&nbsp; Turma: ______ &nbsp;&nbsp; Data: {date_field} &nbsp;&nbsp; Nota: ______</div>",
             "<div>Aluno(a): _________________________________________________________________</div>",
+            f"<div style='text-align:center; font-size: 14px; font-weight: 700; margin-top: 12px;'>{safe_test_name}</div>" if safe_test_name else "",
+            "<div style='margin-top: 10px;'><strong>Instruções:</strong></div>" if safe_instructions else "",
+            f"<div style='white-space: pre-wrap;'>{safe_instructions}</div>" if safe_instructions else "",
         ]
 
         # Normalizar opção de gabarito
@@ -157,7 +169,12 @@ def _generate_with_pypandoc(
         # SOMENTE QUESTÕES
         if gabarito_option == "somente_questoes":
             for idx, q in enumerate(questions, start=1):
-                body_parts.append(f"<h3>Questão {idx}</h3>")
+                banca = (getattr(q, 'banca', '') or '').strip().upper()
+                ano = getattr(q, 'ano', None)
+                banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
+                suffix = f" ({banca_ano})" if banca_ano else ""
+                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                body_parts.append("<p></p>")
                 enunciado = _convert_ckeditor_math_to_latex(q.enunciado or '')
                 body_parts.append(f"<div>{enunciado}</div>")
 
@@ -165,7 +182,12 @@ def _generate_with_pypandoc(
         elif gabarito_option == "somente_gabarito":
             body_parts.append("<h1 style='text-align:center; page-break-before: always;'>GABARITO</h1>")
             for idx, q in enumerate(questions, start=1):
-                body_parts.append(f"<h3>Questão {idx}</h3>")
+                banca = (getattr(q, 'banca', '') or '').strip().upper()
+                ano = getattr(q, 'ano', None)
+                banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
+                suffix = f" ({banca_ano})" if banca_ano else ""
+                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                body_parts.append("<p></p>")
                 if getattr(q, 'resposta_gabarito', None):
                     resposta_g = _convert_ckeditor_math_to_latex(q.resposta_gabarito or '')
                     body_parts.append(f"<div>{resposta_g}</div>")
@@ -174,7 +196,12 @@ def _generate_with_pypandoc(
         elif gabarito_option == "somente_gabarito_com_expectativa":
             body_parts.append("<h1 style='text-align:center; page-break-before: always;'>GABARITO</h1>")
             for idx, q in enumerate(questions, start=1):
-                body_parts.append(f"<h3>Questão {idx}</h3>")
+                banca = (getattr(q, 'banca', '') or '').strip().upper()
+                ano = getattr(q, 'ano', None)
+                banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
+                suffix = f" ({banca_ano})" if banca_ano else ""
+                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                body_parts.append("<p></p>")
                 if getattr(q, 'resposta', None):
                     resposta = _convert_ckeditor_math_to_latex(q.resposta or '')
                     body_parts.append(f"<div>{resposta}</div>")
@@ -182,7 +209,12 @@ def _generate_with_pypandoc(
         # GABARITO APÓS CADA QUESTÃO
         elif gabarito_option == "apos_cada_questao":
             for idx, q in enumerate(questions, start=1):
-                body_parts.append(f"<h3>Questão {idx}</h3>")
+                banca = (getattr(q, 'banca', '') or '').strip().upper()
+                ano = getattr(q, 'ano', None)
+                banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
+                suffix = f" ({banca_ano})" if banca_ano else ""
+                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                body_parts.append("<p></p>")
                 enunciado = _convert_ckeditor_math_to_latex(q.enunciado or '')
                 body_parts.append(f"<div>{enunciado}</div>")
 
@@ -198,14 +230,24 @@ def _generate_with_pypandoc(
         # GABARITO NO FINAL DO ARQUIVO (comportamento padrão)
         else:  # "final_arquivo"
             for idx, q in enumerate(questions, start=1):
-                body_parts.append(f"<h3>Questão {idx}</h3>")
+                banca = (getattr(q, 'banca', '') or '').strip().upper()
+                ano = getattr(q, 'ano', None)
+                banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
+                suffix = f" ({banca_ano})" if banca_ano else ""
+                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                body_parts.append("<p></p>")
                 enunciado = _convert_ckeditor_math_to_latex(q.enunciado or '')
                 body_parts.append(f"<div>{enunciado}</div>")
 
             if include_gabarito:
                 body_parts.append("<h1 style='text-align:center; page-break-before: always;'>GABARITO</h1>")
                 for idx, q in enumerate(questions, start=1):
-                    body_parts.append(f"<h3>Questão {idx}</h3>")
+                    banca = (getattr(q, 'banca', '') or '').strip().upper()
+                    ano = getattr(q, 'ano', None)
+                    banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
+                    suffix = f" ({banca_ano})" if banca_ano else ""
+                    body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                    body_parts.append("<p></p>")
                     if use_resposta_gabarito and getattr(q, 'resposta_gabarito', None):
                         resposta_g = _convert_ckeditor_math_to_latex(q.resposta_gabarito or '')
                         body_parts.append(f"<div>{resposta_g}</div>")
@@ -236,6 +278,10 @@ def _generate_with_pandoc(
     include_gabarito: bool = True,
     use_resposta_gabarito: bool = False,
     gabarito_option: Optional[str] = None,
+    test_name: str = "",
+    teacher_name: str = "",
+    test_date: str = "",
+    instructions: str = "",
 ) -> Optional[bytes]:
     """Try to use pandoc (and MiKTeX/LaTeX engine) to produce PDF/DOCX with real formulas. Returns bytes or None on failure."""
     try:
@@ -243,12 +289,20 @@ def _generate_with_pandoc(
             "<meta charset='utf-8'/>"
             "<style>body{font-family: Arial, sans-serif;margin:40px;} img{max-width:100%;}</style>"
         )
-        # Cabeçalho padrão
+        safe_test_name = (test_name or "").strip()
+        safe_instructions = (instructions or "").strip()
+        safe_teacher = (teacher_name or "").strip()
+        safe_date = (test_date or "").strip()
+        teacher_field = safe_teacher if safe_teacher else "__________________"
+        date_field = safe_date if safe_date else "____/____/______"
+
+        # Cabeçalho padrão: começa em Professor/Aluno/Data/Nota (nada acima disso)
         body_parts = [
-            "<h2 style='text-align:center'>INSTITUTO FEDERAL – Sistema de Avaliação</h2>",
-            "<h1 style='text-align:center'>PROVA</h1>",
-            "<div>Professor(a): __________________ &nbsp;&nbsp; Turma: ______ &nbsp;&nbsp; Data: ____/____/______ &nbsp;&nbsp; Nota: ______</div>",
+            f"<div>Professor(a): {teacher_field} &nbsp;&nbsp; Turma: ______ &nbsp;&nbsp; Data: {date_field} &nbsp;&nbsp; Nota: ______</div>",
             "<div>Aluno(a): _________________________________________________________________</div>",
+            f"<div style='text-align:center; font-size: 14px; font-weight: 700; margin-top: 12px;'>{safe_test_name}</div>" if safe_test_name else "",
+            "<div style='margin-top: 10px;'><strong>Instruções:</strong></div>" if safe_instructions else "",
+            f"<div style='white-space: pre-wrap;'>{safe_instructions}</div>" if safe_instructions else "",
         ]
 
         # Normalizar opção de gabarito
@@ -257,17 +311,27 @@ def _generate_with_pandoc(
         # SOMENTE QUESTÕES
         if gabarito_option == "somente_questoes":
             for idx, q in enumerate(questions, start=1):
-                body_parts.append(f"<h3>Questão {idx}</h3>")
+                banca = (getattr(q, 'banca', '') or '').strip().upper()
+                ano = getattr(q, 'ano', None)
+                banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
+                suffix = f" ({banca_ano})" if banca_ano else ""
+                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                body_parts.append("<p></p>")
                 enunciado = _convert_ckeditor_math_to_latex(q.enunciado or '')
                 body_parts.append(f"<div>{enunciado}</div>")
 
         # SOMENTE GABARITO (letras / resposta_gabarito)
         elif gabarito_option == "somente_gabarito":
             body_parts.append("<p style='page-break-before: always;'></p>")
-            body_parts.append("<h2 style='text-align:center'>INSTITUTO FEDERAL – Sistema de Avaliação</h2>")
+            body_parts.append("<h2 style='text-align:center'>EduQBank</h2>")
             body_parts.append("<h1 style='text-align:center'>GABARITO</h1>")
             for idx, q in enumerate(questions, start=1):
-                body_parts.append(f"<h3>Questão {idx}</h3>")
+                banca = (getattr(q, 'banca', '') or '').strip().upper()
+                ano = getattr(q, 'ano', None)
+                banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
+                suffix = f" ({banca_ano})" if banca_ano else ""
+                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                body_parts.append("<p></p>")
                 if getattr(q, 'resposta_gabarito', None):
                     resposta_g = _convert_ckeditor_math_to_latex(q.resposta_gabarito or '')
                     body_parts.append(f"<div>{resposta_g}</div>")
@@ -275,10 +339,15 @@ def _generate_with_pandoc(
         # SOMENTE GABARITO COM EXPECTATIVA (resposta completa)
         elif gabarito_option == "somente_gabarito_com_expectativa":
             body_parts.append("<p style='page-break-before: always;'></p>")
-            body_parts.append("<h2 style='text-align:center'>INSTITUTO FEDERAL – Sistema de Avaliação</h2>")
+            body_parts.append("<h2 style='text-align:center'>EduQBank</h2>")
             body_parts.append("<h1 style='text-align:center'>GABARITO</h1>")
             for idx, q in enumerate(questions, start=1):
-                body_parts.append(f"<h3>Questão {idx}</h3>")
+                banca = (getattr(q, 'banca', '') or '').strip().upper()
+                ano = getattr(q, 'ano', None)
+                banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
+                suffix = f" ({banca_ano})" if banca_ano else ""
+                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                body_parts.append("<p></p>")
                 if getattr(q, 'resposta', None):
                     resposta = _convert_ckeditor_math_to_latex(q.resposta or '')
                     body_parts.append(f"<div>{resposta}</div>")
@@ -286,7 +355,12 @@ def _generate_with_pandoc(
         # GABARITO APÓS CADA QUESTÃO
         elif gabarito_option == "apos_cada_questao":
             for idx, q in enumerate(questions, start=1):
-                body_parts.append(f"<h3>Questão {idx}</h3>")
+                banca = (getattr(q, 'banca', '') or '').strip().upper()
+                ano = getattr(q, 'ano', None)
+                banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
+                suffix = f" ({banca_ano})" if banca_ano else ""
+                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                body_parts.append("<p></p>")
                 enunciado = _convert_ckeditor_math_to_latex(q.enunciado or '')
                 body_parts.append(f"<div>{enunciado}</div>")
 
@@ -301,19 +375,29 @@ def _generate_with_pandoc(
         # GABARITO NO FINAL DO ARQUIVO (comportamento padrão)
         else:  # "final_arquivo"
             for idx, q in enumerate(questions, start=1):
-                body_parts.append(f"<h3>Questão {idx}</h3>")
+                banca = (getattr(q, 'banca', '') or '').strip().upper()
+                ano = getattr(q, 'ano', None)
+                banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
+                suffix = f" ({banca_ano})" if banca_ano else ""
+                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                body_parts.append("<p></p>")
                 enunciado = _convert_ckeditor_math_to_latex(q.enunciado or '')
                 body_parts.append(f"<div>{enunciado}</div>")
 
             if include_gabarito:
                 body_parts.append("<p style='page-break-before: always;'></p>")
-                body_parts.append("<h2 style='text-align:center'>INSTITUTO FEDERAL – Sistema de Avaliação</h2>")
-                body_parts.append("<h1 style='text-align:center'>GABARITO</h1>")
-                body_parts.append("<div>Professor(a): __________________ &nbsp;&nbsp; Turma: ______ &nbsp;&nbsp; Data: ____/____/______ &nbsp;&nbsp; Nota: ______</div>")
+                body_parts.append(f"<div>Professor(a): {teacher_field} &nbsp;&nbsp; Turma: ______ &nbsp;&nbsp; Data: {date_field} &nbsp;&nbsp; Nota: ______</div>")
                 body_parts.append("<div>Aluno(a): _________________________________________________________________</div>")
+                if safe_test_name:
+                    body_parts.append(f"<div style='text-align:center; font-size: 14px; font-weight: 700; margin-top: 12px;'>{safe_test_name}</div>")
 
                 for idx, q in enumerate(questions, start=1):
-                    body_parts.append(f"<h3>Questão {idx}</h3>")
+                    banca = (getattr(q, 'banca', '') or '').strip().upper()
+                    ano = getattr(q, 'ano', None)
+                    banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
+                    suffix = f" ({banca_ano})" if banca_ano else ""
+                    body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                    body_parts.append("<p></p>")
                     if use_resposta_gabarito and getattr(q, 'resposta_gabarito', None):
                         resposta_g = _convert_ckeditor_math_to_latex(q.resposta_gabarito or '')
                         body_parts.append(f"<div>{resposta_g}</div>")
@@ -342,25 +426,47 @@ def _generate_with_pandoc(
         return None
 
 
-def _docx_add_if_header(document: Document, title: str = "PROVA", subtitle: str = "") -> None:
-    section = document.sections[0]
-    header = section.header
-    header_para = header.paragraphs[0]
-    run = header_para.add_run("INSTITUTO FEDERAL – Sistema de Avaliação\n")
-    run.font.size = Pt(10)
-    header_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p = document.add_paragraph()
-    r = p.add_run(title)
-    r.font.size = Pt(16)
-    r.bold = True
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if subtitle:
-        p2 = document.add_paragraph(subtitle)
-        p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    info = document.add_paragraph("Professor(a): __________________    Turma: ______    Data: ____/____/______    Nota: ______")
+def _docx_add_if_header(
+    document: Document,
+    test_name: str = "",
+    teacher_name: str = "",
+    test_date: str = "",
+    instructions: str = "",
+) -> None:
+    """
+    Cabeçalho padrão (sem nada acima da linha Professor/Aluno/Data/Nota).
+    Campos opcionais:
+      - test_name: exibido centralizado abaixo de Aluno(a)
+      - instructions: exibido apenas se não estiver vazio
+      - teacher_name / test_date: se vazios, mantém linhas em branco (underscores)
+    """
+    safe_teacher = (teacher_name or "").strip()
+    safe_date = (test_date or "").strip()
+    safe_test_name = (test_name or "").strip()
+    safe_instructions = (instructions or "").strip()
+
+    teacher_field = safe_teacher if safe_teacher else "__________________"
+    date_field = safe_date if safe_date else "____/____/______"
+
+    info = document.add_paragraph(f"Professor(a): {teacher_field}    Turma: ______    Data: {date_field}    Nota: ______")
     info.alignment = WD_ALIGN_PARAGRAPH.LEFT
     document.add_paragraph("Aluno(a): _________________________________________________________________")
     document.add_paragraph("")
+
+    if safe_test_name:
+        p = document.add_paragraph()
+        r = p.add_run(safe_test_name)
+        r.bold = True
+        r.font.size = Pt(14)
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        document.add_paragraph("")
+
+    if safe_instructions:
+        p_i = document.add_paragraph()
+        r_i = p_i.add_run("Instruções:")
+        r_i.bold = True
+        document.add_paragraph(safe_instructions)
+        document.add_paragraph("")
 
 
 def _get_image_bytes_from_html(src: str) -> Optional[bytes]:

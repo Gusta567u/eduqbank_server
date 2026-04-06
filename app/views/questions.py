@@ -175,7 +175,17 @@ class QuestaoViewSet(viewsets.ModelViewSet):
         
         bancas = self.request.query_params.getlist('banca')
         if bancas:
-            queryset = queryset.filter(banca__in=bancas)
+            # Filtro robusto contra inconsistências de caixa (ENEM vs Enem, etc.)
+            banca_q = Q()
+            for b in bancas:
+                if b is None:
+                    continue
+                b_norm = str(b).strip()
+                if not b_norm:
+                    continue
+                banca_q |= Q(banca__iexact=b_norm)
+            if banca_q:
+                queryset = queryset.filter(banca_q)
         
         tipos_questao = self.request.query_params.getlist('tipo_questao')
         if tipos_questao:

@@ -43,7 +43,21 @@ def get_unique_values(request):
         return Response({"error": "Field parameter is required"}, status=400)
     
     if field == 'banca':
-        values = Questao.objects.values_list('banca', flat=True).distinct().order_by('banca')
+        # Normalizar para reduzir inconsistência de filtro (ENEM vs Enem, etc.)
+        values = (
+            Questao.objects
+            .exclude(banca__isnull=True)
+            .exclude(banca__exact="")
+            .values_list('banca', flat=True)
+            .distinct()
+        )
+        normalized = sorted({(v or "").strip().upper() for v in values if (v or "").strip()})
+        # Bancas "fixas" que precisam sempre aparecer na lista
+        for fixed in ("IFRN", "IFPB"):
+            if fixed not in normalized:
+                normalized.append(fixed)
+        normalized.sort()
+        return Response(normalized)
     elif field == 'tipo_questao':
         values = Questao.objects.values_list('tipo_questao', flat=True).distinct().order_by('tipo_questao')
     elif field == 'dificuldade':
