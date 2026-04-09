@@ -4,15 +4,51 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
+import socket
+
+
+DISPOSABLE_EMAIL_DOMAINS = {
+    "mailinator.com",
+    "tempmail.com",
+    "10minutemail.com",
+    "guerrillamail.com",
+    "yopmail.com",
+}
+
+
+def _has_valid_mail_domain(email: str) -> bool:
+    try:
+        domain = email.split("@", 1)[1].strip().lower()
+    except Exception:
+        return False
+
+    if not domain or domain in DISPOSABLE_EMAIL_DOMAINS:
+        return False
+
+    try:
+        socket.getaddrinfo(domain, None)
+        return True
+    except socket.gaierror:
+        return False
 
 
 @api_view(["POST"])
 def signup(request):
-    email = request.data.get("email")
+    email = (request.data.get("email") or "").strip().lower()
     password = request.data.get("password")
 
     if not email or not password:
         return Response({"detail": "Campos obrigatórios"}, status=400)
+
+    try:
+        validate_email(email)
+    except ValidationError:
+        return Response({"detail": "E-mail inválido."}, status=400)
+
+    if not _has_valid_mail_domain(email):
+        return Response({"detail": "Use um e-mail real com domínio válido."}, status=400)
 
     if User.objects.filter(username=email).exists():
         return Response({"detail": "Email já cadastrado"}, status=400)

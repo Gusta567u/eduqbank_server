@@ -11,6 +11,7 @@ from .questions import (
 from .export import print_test_docx
 from .content import buscar_conteudos_filho, list_conteudos, get_unique_values
 from .upload import upload_image
+from .about import list_about_images, upload_about_image
 
 __all__ = [
     'signup',
@@ -29,5 +30,7 @@ __all__ = [
     'list_conteudos',
     'get_unique_values',
     'upload_image',
+    'list_about_images',
+    'upload_about_image',
 ]
 

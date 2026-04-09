@@ -41,3 +41,21 @@ class Questao(models.Model):
     enunciado = RichTextUploadingField('Enunciado')
     resposta = RichTextUploadingField('Resposta')
     resposta_gabarito = RichTextUploadingField('Resposta Gabarito', blank=True, null=True)
+
+
+class AboutImage(models.Model):
+    image = models.ImageField(upload_to='about/')
+    created_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='about_images',
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Imagem Sobre #{self.id}"

@@ -15,5 +15,7 @@ urlpatterns = [
     path('conteudos/', views.list_conteudos, name='list_conteudos'),
     path('unique-values/', views.get_unique_values, name='get_unique_values'),
     path('print-test/docx/', views.print_test_docx, name='print_test_docx'),
+    path('about/images/', views.list_about_images, name='list_about_images'),
+    path('about/images/upload/', views.upload_about_image, name='upload_about_image'),
     path('', include(router.urls)),
 ]
