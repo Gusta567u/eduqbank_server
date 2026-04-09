@@ -8,7 +8,6 @@ from django.conf import settings
 from urllib.parse import urlparse
 from urllib.request import urlopen
 from docx import Document
-from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 try:
@@ -134,10 +133,6 @@ def _generate_with_pypandoc(
     include_gabarito: bool = True,
     use_resposta_gabarito: bool = False,
     gabarito_option: Optional[str] = None,
-    test_name: str = "",
-    teacher_name: str = "",
-    test_date: str = "",
-    instructions: str = "",
 ) -> Optional[bytes]:
     """Use pypandoc to convert HTML (with LaTeX) to PDF/DOCX using installed Pandoc and MiKTeX. Returns bytes or None."""
     if pypandoc is None:
@@ -147,20 +142,13 @@ def _generate_with_pypandoc(
             "<meta charset='utf-8'/>"
             "<style>body{font-family: Arial, sans-serif;margin:40px;} img{max-width:100%;}</style>"
         )
-        safe_test_name = (test_name or "").strip()
-        safe_instructions = (instructions or "").strip()
-        safe_teacher = (teacher_name or "").strip()
-        safe_date = (test_date or "").strip()
-        teacher_field = safe_teacher if safe_teacher else "__________________"
-        date_field = safe_date if safe_date else "____/____/______"
+        teacher_field = "__________________"
+        date_field = "____/____/______"
 
-        # Cabeçalho padrão: começa em Professor/Aluno/Data/Nota (nada acima disso)
+        # Cabeçalho fixo: Professor/Aluno/Data/Nota (sem campos personalizados)
         body_parts = [
             f"<div>Professor(a): {teacher_field} &nbsp;&nbsp; Turma: ______ &nbsp;&nbsp; Data: {date_field} &nbsp;&nbsp; Nota: ______</div>",
             "<div>Aluno(a): _________________________________________________________________</div>",
-            f"<div style='text-align:center; font-size: 14px; font-weight: 700; margin-top: 12px;'>{safe_test_name}</div>" if safe_test_name else "",
-            "<div style='margin-top: 10px;'><strong>Instruções:</strong></div>" if safe_instructions else "",
-            f"<div style='white-space: pre-wrap;'>{safe_instructions}</div>" if safe_instructions else "",
         ]
 
         # Normalizar opção de gabarito
@@ -278,10 +266,6 @@ def _generate_with_pandoc(
     include_gabarito: bool = True,
     use_resposta_gabarito: bool = False,
     gabarito_option: Optional[str] = None,
-    test_name: str = "",
-    teacher_name: str = "",
-    test_date: str = "",
-    instructions: str = "",
 ) -> Optional[bytes]:
     """Try to use pandoc (and MiKTeX/LaTeX engine) to produce PDF/DOCX with real formulas. Returns bytes or None on failure."""
     try:
@@ -289,20 +273,13 @@ def _generate_with_pandoc(
             "<meta charset='utf-8'/>"
             "<style>body{font-family: Arial, sans-serif;margin:40px;} img{max-width:100%;}</style>"
         )
-        safe_test_name = (test_name or "").strip()
-        safe_instructions = (instructions or "").strip()
-        safe_teacher = (teacher_name or "").strip()
-        safe_date = (test_date or "").strip()
-        teacher_field = safe_teacher if safe_teacher else "__________________"
-        date_field = safe_date if safe_date else "____/____/______"
+        teacher_field = "__________________"
+        date_field = "____/____/______"
 
-        # Cabeçalho padrão: começa em Professor/Aluno/Data/Nota (nada acima disso)
+        # Cabeçalho fixo: Professor/Aluno/Data/Nota (sem campos personalizados)
         body_parts = [
             f"<div>Professor(a): {teacher_field} &nbsp;&nbsp; Turma: ______ &nbsp;&nbsp; Data: {date_field} &nbsp;&nbsp; Nota: ______</div>",
             "<div>Aluno(a): _________________________________________________________________</div>",
-            f"<div style='text-align:center; font-size: 14px; font-weight: 700; margin-top: 12px;'>{safe_test_name}</div>" if safe_test_name else "",
-            "<div style='margin-top: 10px;'><strong>Instruções:</strong></div>" if safe_instructions else "",
-            f"<div style='white-space: pre-wrap;'>{safe_instructions}</div>" if safe_instructions else "",
         ]
 
         # Normalizar opção de gabarito
@@ -388,8 +365,6 @@ def _generate_with_pandoc(
                 body_parts.append("<p style='page-break-before: always;'></p>")
                 body_parts.append(f"<div>Professor(a): {teacher_field} &nbsp;&nbsp; Turma: ______ &nbsp;&nbsp; Data: {date_field} &nbsp;&nbsp; Nota: ______</div>")
                 body_parts.append("<div>Aluno(a): _________________________________________________________________</div>")
-                if safe_test_name:
-                    body_parts.append(f"<div style='text-align:center; font-size: 14px; font-weight: 700; margin-top: 12px;'>{safe_test_name}</div>")
 
                 for idx, q in enumerate(questions, start=1):
                     banca = (getattr(q, 'banca', '') or '').strip().upper()
@@ -426,47 +401,16 @@ def _generate_with_pandoc(
         return None
 
 
-def _docx_add_if_header(
-    document: Document,
-    test_name: str = "",
-    teacher_name: str = "",
-    test_date: str = "",
-    instructions: str = "",
-) -> None:
-    """
-    Cabeçalho padrão (sem nada acima da linha Professor/Aluno/Data/Nota).
-    Campos opcionais:
-      - test_name: exibido centralizado abaixo de Aluno(a)
-      - instructions: exibido apenas se não estiver vazio
-      - teacher_name / test_date: se vazios, mantém linhas em branco (underscores)
-    """
-    safe_teacher = (teacher_name or "").strip()
-    safe_date = (test_date or "").strip()
-    safe_test_name = (test_name or "").strip()
-    safe_instructions = (instructions or "").strip()
-
-    teacher_field = safe_teacher if safe_teacher else "__________________"
-    date_field = safe_date if safe_date else "____/____/______"
-
-    info = document.add_paragraph(f"Professor(a): {teacher_field}    Turma: ______    Data: {date_field}    Nota: ______")
+def _docx_add_default_header(document: Document) -> None:
+    """Cabeçalho fixo na primeira página (Professor/Aluno/Data/Nota), sem campos personalizados."""
+    teacher_field = "__________________"
+    date_field = "____/____/______"
+    info = document.add_paragraph(
+        f"Professor(a): {teacher_field}    Turma: ______    Data: {date_field}    Nota: ______"
+    )
     info.alignment = WD_ALIGN_PARAGRAPH.LEFT
     document.add_paragraph("Aluno(a): _________________________________________________________________")
     document.add_paragraph("")
-
-    if safe_test_name:
-        p = document.add_paragraph()
-        r = p.add_run(safe_test_name)
-        r.bold = True
-        r.font.size = Pt(14)
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        document.add_paragraph("")
-
-    if safe_instructions:
-        p_i = document.add_paragraph()
-        r_i = p_i.add_run("Instruções:")
-        r_i.bold = True
-        document.add_paragraph(safe_instructions)
-        document.add_paragraph("")
 
 
 def _get_image_bytes_from_html(src: str) -> Optional[bytes]:

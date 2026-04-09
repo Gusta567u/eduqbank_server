@@ -10,7 +10,7 @@ from app.utils import html_render_math_to_img
 from .helpers import (
     _generate_with_pypandoc,
     _generate_with_pandoc,
-    _docx_add_if_header,
+    _docx_add_default_header,
     _get_image_bytes_from_html,
 )
 
@@ -74,10 +74,6 @@ def print_test_docx(request):
     test_name = request.data.get('test_name', '').strip()
     if not test_name:
         test_name = "prova" if not include_gabarito else "prova_com_gabarito"
-
-    teacher_name = (request.data.get('teacher_name') or '').strip()
-    test_date = (request.data.get('test_date') or '').strip()
-    instructions = (request.data.get('instructions') or '').strip()
     
     # Try pypandoc first (preferred)
     pp_bytes = _generate_with_pypandoc(
@@ -86,10 +82,6 @@ def print_test_docx(request):
         include_gabarito=include_gabarito,
         use_resposta_gabarito=use_resposta_gabarito,
         gabarito_option=gabarito_option,
-        test_name=test_name,
-        teacher_name=teacher_name,
-        test_date=test_date,
-        instructions=instructions,
     )
     if pp_bytes:
         resp = HttpResponse(pp_bytes, content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
@@ -103,10 +95,6 @@ def print_test_docx(request):
         include_gabarito=include_gabarito,
         use_resposta_gabarito=use_resposta_gabarito,
         gabarito_option=gabarito_option,
-        test_name=test_name,
-        teacher_name=teacher_name,
-        test_date=test_date,
-        instructions=instructions,
     )
     if pandoc_bytes:
         resp = HttpResponse(pandoc_bytes, content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
@@ -115,22 +103,11 @@ def print_test_docx(request):
 
     # Fallback to python-docx
     document = Document()
-    _docx_add_if_header(
-        document,
-        test_name=test_name,
-        teacher_name=teacher_name,
-        test_date=test_date,
-        instructions=instructions,
-    )
+    _docx_add_default_header(document)
     
     # Primeira página: apenas enunciados
     for idx, q in enumerate(questions, start=1):
-        banca = (getattr(q, 'banca', '') or '').strip().upper()
-        ano = getattr(q, 'ano', None)
-        banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-        suffix = f" ({banca_ano})" if banca_ano else ""
-        document.add_paragraph(f"Questão {idx:02d}.{suffix}")
-        document.add_paragraph("")
+        document.add_paragraph(f"Questão {idx}")
         html = html_render_math_to_img(q.enunciado or "")
         soup = BeautifulSoup(html, 'lxml')
         accum_text = []
@@ -153,20 +130,9 @@ def print_test_docx(request):
     # Segunda página: gabarito (se solicitado)
     if include_gabarito:
         document.add_page_break()
-        _docx_add_if_header(
-            document,
-            test_name=test_name,
-            teacher_name=teacher_name,
-            test_date=test_date,
-            instructions=instructions,
-        )
+        _docx_add_default_header(document)
         for idx, q in enumerate(questions, start=1):
-            banca = (getattr(q, 'banca', '') or '').strip().upper()
-            ano = getattr(q, 'ano', None)
-            banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-            suffix = f" ({banca_ano})" if banca_ano else ""
-            document.add_paragraph(f"Questão {idx:02d}.{suffix}")
-            document.add_paragraph("")
+            document.add_paragraph(f"Questão {idx}")
             
             # Escolher entre resposta_gabarito ou resposta
             if use_resposta_gabarito and getattr(q, 'resposta_gabarito', None):
