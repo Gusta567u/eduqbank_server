@@ -127,6 +127,36 @@ def _rewrite_img_src_to_fs_paths(html: str) -> str:
     return str(soup)
 
 
+def _format_question_title(idx: int) -> str:
+    """Return a bold black question title that survives pandoc conversion."""
+    return f"<p><strong>Questão {idx:02d}.</strong></p>"
+
+
+def _prepend_banca_to_html_content(content_html: str, banca_ano_line: str) -> str:
+    """
+    Inject banca text in the SAME LINE as the first text of content (enunciado/resposta).
+    If content starts with a <p>, prepend inside that <p>; otherwise prepend at start.
+    """
+    if not banca_ano_line:
+        return content_html or ""
+    prefix = f"{banca_ano_line} "
+    if not content_html:
+        return prefix
+
+    soup = BeautifulSoup(content_html, "lxml")
+    container = soup.body if soup.body else soup
+
+    first_p = container.find("p")
+    if first_p:
+        first_p.insert(0, prefix)
+    else:
+        container.insert(0, prefix)
+
+    if soup.body:
+        return soup.body.decode_contents()
+    return str(soup)
+
+
 def _generate_with_pypandoc(
     questions,
     out_format: str,
@@ -160,11 +190,11 @@ def _generate_with_pypandoc(
                 banca = (getattr(q, 'banca', '') or '').strip().upper()
                 ano = getattr(q, 'ano', None)
                 banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-                suffix = f" ({banca_ano})" if banca_ano else ""
-                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                banca_ano_line = f"({banca_ano})" if banca_ano else ""
+                body_parts.append(_format_question_title(idx))
                 body_parts.append("<p></p>")
                 enunciado = _convert_ckeditor_math_to_latex(q.enunciado or '')
-                body_parts.append(f"<div>{enunciado}</div>")
+                body_parts.append(f"<div>{_prepend_banca_to_html_content(enunciado, banca_ano_line)}</div>")
 
         # SOMENTE GABARITO (letras / resposta_gabarito)
         elif gabarito_option == "somente_gabarito":
@@ -173,12 +203,12 @@ def _generate_with_pypandoc(
                 banca = (getattr(q, 'banca', '') or '').strip().upper()
                 ano = getattr(q, 'ano', None)
                 banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-                suffix = f" ({banca_ano})" if banca_ano else ""
-                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                banca_ano_line = f"({banca_ano})" if banca_ano else ""
+                body_parts.append(_format_question_title(idx))
                 body_parts.append("<p></p>")
                 if getattr(q, 'resposta_gabarito', None):
                     resposta_g = _convert_ckeditor_math_to_latex(q.resposta_gabarito or '')
-                    body_parts.append(f"<div>{resposta_g}</div>")
+                    body_parts.append(f"<div>{_prepend_banca_to_html_content(resposta_g, banca_ano_line)}</div>")
 
         # SOMENTE GABARITO COM EXPECTATIVA (resposta completa)
         elif gabarito_option == "somente_gabarito_com_expectativa":
@@ -187,12 +217,12 @@ def _generate_with_pypandoc(
                 banca = (getattr(q, 'banca', '') or '').strip().upper()
                 ano = getattr(q, 'ano', None)
                 banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-                suffix = f" ({banca_ano})" if banca_ano else ""
-                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                banca_ano_line = f"({banca_ano})" if banca_ano else ""
+                body_parts.append(_format_question_title(idx))
                 body_parts.append("<p></p>")
                 if getattr(q, 'resposta', None):
                     resposta = _convert_ckeditor_math_to_latex(q.resposta or '')
-                    body_parts.append(f"<div>{resposta}</div>")
+                    body_parts.append(f"<div>{_prepend_banca_to_html_content(resposta, banca_ano_line)}</div>")
 
         # GABARITO APÓS CADA QUESTÃO
         elif gabarito_option == "apos_cada_questao":
@@ -200,20 +230,20 @@ def _generate_with_pypandoc(
                 banca = (getattr(q, 'banca', '') or '').strip().upper()
                 ano = getattr(q, 'ano', None)
                 banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-                suffix = f" ({banca_ano})" if banca_ano else ""
-                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                banca_ano_line = f"({banca_ano})" if banca_ano else ""
+                body_parts.append(_format_question_title(idx))
                 body_parts.append("<p></p>")
                 enunciado = _convert_ckeditor_math_to_latex(q.enunciado or '')
-                body_parts.append(f"<div>{enunciado}</div>")
+                body_parts.append(f"<div>{_prepend_banca_to_html_content(enunciado, banca_ano_line)}</div>")
 
                 # Bloco de gabarito logo após a questão
                 body_parts.append("<h4>Gabarito</h4>")
                 if use_resposta_gabarito and getattr(q, 'resposta_gabarito', None):
                     resposta_g = _convert_ckeditor_math_to_latex(q.resposta_gabarito or '')
-                    body_parts.append(f"<div>{resposta_g}</div>")
+                    body_parts.append(f"<div>{_prepend_banca_to_html_content(resposta_g, banca_ano_line)}</div>")
                 elif getattr(q, 'resposta', None):
                     resposta = _convert_ckeditor_math_to_latex(q.resposta or '')
-                    body_parts.append(f"<div>{resposta}</div>")
+                    body_parts.append(f"<div>{_prepend_banca_to_html_content(resposta, banca_ano_line)}</div>")
 
         # GABARITO NO FINAL DO ARQUIVO (comportamento padrão)
         else:  # "final_arquivo"
@@ -221,11 +251,11 @@ def _generate_with_pypandoc(
                 banca = (getattr(q, 'banca', '') or '').strip().upper()
                 ano = getattr(q, 'ano', None)
                 banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-                suffix = f" ({banca_ano})" if banca_ano else ""
-                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                banca_ano_line = f"({banca_ano})" if banca_ano else ""
+                body_parts.append(_format_question_title(idx))
                 body_parts.append("<p></p>")
                 enunciado = _convert_ckeditor_math_to_latex(q.enunciado or '')
-                body_parts.append(f"<div>{enunciado}</div>")
+                body_parts.append(f"<div>{_prepend_banca_to_html_content(enunciado, banca_ano_line)}</div>")
 
             if include_gabarito:
                 body_parts.append("<h1 style='text-align:center; page-break-before: always;'>GABARITO</h1>")
@@ -233,15 +263,15 @@ def _generate_with_pypandoc(
                     banca = (getattr(q, 'banca', '') or '').strip().upper()
                     ano = getattr(q, 'ano', None)
                     banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-                    suffix = f" ({banca_ano})" if banca_ano else ""
-                    body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                    banca_ano_line = f"({banca_ano})" if banca_ano else ""
+                    body_parts.append(_format_question_title(idx))
                     body_parts.append("<p></p>")
                     if use_resposta_gabarito and getattr(q, 'resposta_gabarito', None):
                         resposta_g = _convert_ckeditor_math_to_latex(q.resposta_gabarito or '')
-                        body_parts.append(f"<div>{resposta_g}</div>")
+                        body_parts.append(f"<div>{_prepend_banca_to_html_content(resposta_g, banca_ano_line)}</div>")
                     elif getattr(q, 'resposta', None):
                         resposta = _convert_ckeditor_math_to_latex(q.resposta or '')
-                        body_parts.append(f"<div>{resposta}</div>")
+                        body_parts.append(f"<div>{_prepend_banca_to_html_content(resposta, banca_ano_line)}</div>")
         html = f"<html><head>{head}</head><body>{''.join(body_parts)}</body></html>"
         html = _rewrite_img_src_to_fs_paths(html)
 
@@ -291,11 +321,11 @@ def _generate_with_pandoc(
                 banca = (getattr(q, 'banca', '') or '').strip().upper()
                 ano = getattr(q, 'ano', None)
                 banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-                suffix = f" ({banca_ano})" if banca_ano else ""
-                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                banca_ano_line = f"({banca_ano})" if banca_ano else ""
+                body_parts.append(_format_question_title(idx))
                 body_parts.append("<p></p>")
                 enunciado = _convert_ckeditor_math_to_latex(q.enunciado or '')
-                body_parts.append(f"<div>{enunciado}</div>")
+                body_parts.append(f"<div>{_prepend_banca_to_html_content(enunciado, banca_ano_line)}</div>")
 
         # SOMENTE GABARITO (letras / resposta_gabarito)
         elif gabarito_option == "somente_gabarito":
@@ -306,12 +336,12 @@ def _generate_with_pandoc(
                 banca = (getattr(q, 'banca', '') or '').strip().upper()
                 ano = getattr(q, 'ano', None)
                 banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-                suffix = f" ({banca_ano})" if banca_ano else ""
-                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                banca_ano_line = f"({banca_ano})" if banca_ano else ""
+                body_parts.append(_format_question_title(idx))
                 body_parts.append("<p></p>")
                 if getattr(q, 'resposta_gabarito', None):
                     resposta_g = _convert_ckeditor_math_to_latex(q.resposta_gabarito or '')
-                    body_parts.append(f"<div>{resposta_g}</div>")
+                    body_parts.append(f"<div>{_prepend_banca_to_html_content(resposta_g, banca_ano_line)}</div>")
 
         # SOMENTE GABARITO COM EXPECTATIVA (resposta completa)
         elif gabarito_option == "somente_gabarito_com_expectativa":
@@ -322,12 +352,12 @@ def _generate_with_pandoc(
                 banca = (getattr(q, 'banca', '') or '').strip().upper()
                 ano = getattr(q, 'ano', None)
                 banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-                suffix = f" ({banca_ano})" if banca_ano else ""
-                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                banca_ano_line = f"({banca_ano})" if banca_ano else ""
+                body_parts.append(_format_question_title(idx))
                 body_parts.append("<p></p>")
                 if getattr(q, 'resposta', None):
                     resposta = _convert_ckeditor_math_to_latex(q.resposta or '')
-                    body_parts.append(f"<div>{resposta}</div>")
+                    body_parts.append(f"<div>{_prepend_banca_to_html_content(resposta, banca_ano_line)}</div>")
 
         # GABARITO APÓS CADA QUESTÃO
         elif gabarito_option == "apos_cada_questao":
@@ -335,19 +365,19 @@ def _generate_with_pandoc(
                 banca = (getattr(q, 'banca', '') or '').strip().upper()
                 ano = getattr(q, 'ano', None)
                 banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-                suffix = f" ({banca_ano})" if banca_ano else ""
-                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                banca_ano_line = f"({banca_ano})" if banca_ano else ""
+                body_parts.append(_format_question_title(idx))
                 body_parts.append("<p></p>")
                 enunciado = _convert_ckeditor_math_to_latex(q.enunciado or '')
-                body_parts.append(f"<div>{enunciado}</div>")
+                body_parts.append(f"<div>{_prepend_banca_to_html_content(enunciado, banca_ano_line)}</div>")
 
                 body_parts.append("<h4>Gabarito</h4>")
                 if use_resposta_gabarito and getattr(q, 'resposta_gabarito', None):
                     resposta_g = _convert_ckeditor_math_to_latex(q.resposta_gabarito or '')
-                    body_parts.append(f"<div>{resposta_g}</div>")
+                    body_parts.append(f"<div>{_prepend_banca_to_html_content(resposta_g, banca_ano_line)}</div>")
                 elif getattr(q, 'resposta', None):
                     resposta = _convert_ckeditor_math_to_latex(q.resposta or '')
-                    body_parts.append(f"<div>{resposta}</div>")
+                    body_parts.append(f"<div>{_prepend_banca_to_html_content(resposta, banca_ano_line)}</div>")
 
         # GABARITO NO FINAL DO ARQUIVO (comportamento padrão)
         else:  # "final_arquivo"
@@ -355,11 +385,11 @@ def _generate_with_pandoc(
                 banca = (getattr(q, 'banca', '') or '').strip().upper()
                 ano = getattr(q, 'ano', None)
                 banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-                suffix = f" ({banca_ano})" if banca_ano else ""
-                body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                banca_ano_line = f"({banca_ano})" if banca_ano else ""
+                body_parts.append(_format_question_title(idx))
                 body_parts.append("<p></p>")
                 enunciado = _convert_ckeditor_math_to_latex(q.enunciado or '')
-                body_parts.append(f"<div>{enunciado}</div>")
+                body_parts.append(f"<div>{_prepend_banca_to_html_content(enunciado, banca_ano_line)}</div>")
 
             if include_gabarito:
                 body_parts.append("<p style='page-break-before: always;'></p>")
@@ -370,15 +400,15 @@ def _generate_with_pandoc(
                     banca = (getattr(q, 'banca', '') or '').strip().upper()
                     ano = getattr(q, 'ano', None)
                     banca_ano = f"{banca}-{ano}" if banca and ano else (banca or str(ano or '')).strip()
-                    suffix = f" ({banca_ano})" if banca_ano else ""
-                    body_parts.append(f"<h3>Questão {idx:02d}.{suffix}</h3>")
+                    banca_ano_line = f"({banca_ano})" if banca_ano else ""
+                    body_parts.append(_format_question_title(idx))
                     body_parts.append("<p></p>")
                     if use_resposta_gabarito and getattr(q, 'resposta_gabarito', None):
                         resposta_g = _convert_ckeditor_math_to_latex(q.resposta_gabarito or '')
-                        body_parts.append(f"<div>{resposta_g}</div>")
+                        body_parts.append(f"<div>{_prepend_banca_to_html_content(resposta_g, banca_ano_line)}</div>")
                     elif getattr(q, 'resposta', None):
                         resposta = _convert_ckeditor_math_to_latex(q.resposta or '')
-                        body_parts.append(f"<div>{resposta}</div>")
+                        body_parts.append(f"<div>{_prepend_banca_to_html_content(resposta, banca_ano_line)}</div>")
         html = f"<html><head>{head}</head><body>{''.join(body_parts)}</body></html>"
         html = _rewrite_img_src_to_fs_paths(html)
 

@@ -32,5 +32,344 @@
 
   <body>
     <div id="root"></div>
+    <script>
+      // Layout override for "Montar prova" screen:
+      // tune 3-column layout on desktop.
+      (function () {
+        const LEFT_WIDTH_PX = 320;  // Assunto (bigger)
+        const RIGHT_WIDTH_PX = 260; // Finalizar prova + Filtros
+        const MIN_DESKTOP_WIDTH = 1024;
+
+        function textEquals(el, expected) {
+          if (!el) return false;
+          const t = (el.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
+          return t === expected.toLowerCase();
+        }
+
+        function findHeadingByText(expected) {
+          const candidates = document.querySelectorAll(
+            "h1,h2,h3,h4,h5,h6,div,span,p,strong,label,button"
+          );
+          for (const el of candidates) {
+            if (textEquals(el, expected)) return el;
+          }
+          return null;
+        }
+
+        function closestPanelContainer(fromEl) {
+          // Climb until we reach a container that looks like a card/panel.
+          let el = fromEl;
+          for (let i = 0; i < 10 && el; i++) {
+            // Heuristic: panel containers usually contain interactive elements and have padding.
+            const hasCheckbox = !!el.querySelector("input[type='checkbox']");
+            const hasSearch = !!el.querySelector("input[type='search'], input[placeholder*='Buscar'], input[aria-label*='Buscar']");
+            if (hasCheckbox || hasSearch) return el;
+            el = el.parentElement;
+          }
+          return fromEl?.parentElement || null;
+        }
+
+        function hasTextWithin(container, expected) {
+          if (!container) return false;
+          const t = (container.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
+          return t.includes(expected.toLowerCase());
+        }
+
+        function findColumnForPanel(panel, mustContainText) {
+          // We want the *column* that contains the panel (right column contains both
+          // "Finalizar prova" and "Filtros" cards). Climb up until we find a parent
+          // that has multiple children (stacked cards) or matches the mustContainText.
+          let el = panel;
+          for (let i = 0; i < 12 && el; i++) {
+            if (mustContainText && hasTextWithin(el, mustContainText)) return el;
+            const parent = el.parentElement;
+            if (!parent) break;
+            // Heuristic: a column container often has 2+ children (cards).
+            if (parent.children && parent.children.length >= 2) {
+              // If the parent also contains the mustContainText, treat it as the column.
+              if (!mustContainText || hasTextWithin(parent, mustContainText)) return parent;
+            }
+            el = parent;
+          }
+          return panel;
+        }
+
+        function getAncestors(el) {
+          const out = [];
+          let cur = el;
+          while (cur) {
+            out.push(cur);
+            cur = cur.parentElement;
+          }
+          return out;
+        }
+
+        function findThreeColumnWrapperAndColumns(leftPanel, rightPanel) {
+          if (!leftPanel || !rightPanel) return null;
+
+          // Scan ancestors of the left panel and pick the smallest wrapper that:
+          // - contains both panels
+          // - has >= 3 direct element children
+          // - among its direct children, one contains leftPanel and one contains rightPanel
+          const leftAnc = getAncestors(leftPanel);
+          for (const wrapper of leftAnc) {
+            if (!wrapper || !wrapper.contains(rightPanel)) continue;
+            const children = Array.from(wrapper.children || []).filter((c) => c && c.nodeType === 1);
+            if (children.length < 3) continue;
+
+            const leftCol = children.find((c) => c.contains(leftPanel));
+            const rightCol = children.find((c) => c.contains(rightPanel));
+            if (!leftCol || !rightCol || leftCol === rightCol) continue;
+
+            // Center column: prefer the remaining child that has the most content.
+            const other = children.filter((c) => c !== leftCol && c !== rightCol);
+            if (other.length === 0) continue;
+            let centerCol = other[0];
+            for (const c of other) {
+              if ((c.textContent || "").length > (centerCol.textContent || "").length) centerCol = c;
+            }
+
+            return { wrapper, leftCol, centerCol, rightCol };
+          }
+          return null;
+        }
+
+        function fixAssuntoAlignment(leftPanel) {
+          if (!leftPanel) return;
+
+          // Full visual redesign for "Assunto" as a tree.
+          leftPanel.style.textAlign = "left";
+          leftPanel.style.paddingLeft = "14px";
+          leftPanel.style.paddingRight = "14px";
+
+          function findRowForInput(input) {
+            let el = input.parentElement;
+            while (el && el !== leftPanel) {
+              const boxes = el.querySelectorAll ? el.querySelectorAll("input[type='checkbox']") : [];
+              if (boxes && boxes.length === 1 && (el.textContent || "").trim()) return el;
+              el = el.parentElement;
+            }
+            return input.closest("label") || input.parentElement;
+          }
+
+          const checkboxInputs = Array.from(leftPanel.querySelectorAll("input[type='checkbox']"));
+          const rows = [];
+          for (const input of checkboxInputs) {
+            const row = findRowForInput(input);
+            if (!row || rows.some((r) => r.row === row)) continue;
+            const textEl =
+              (input.nextElementSibling && input.nextElementSibling.tagName !== "INPUT")
+                ? input.nextElementSibling
+                : Array.from(row.children).find((c) => c !== input && c.tagName !== "INPUT") || null;
+            rows.push({ row, input, textEl });
+          }
+
+          // Measure natural X levels from checkbox positions.
+          const xs = rows
+            .map((r) => {
+              try { return r.input.getBoundingClientRect().left; } catch (_) { return null; }
+            })
+            .filter((x) => typeof x === "number");
+          const buckets = [];
+          const tol = 6;
+          for (const x of xs) {
+            if (buckets.findIndex((b) => Math.abs(b - x) <= tol) === -1) buckets.push(x);
+          }
+          buckets.sort((a, b) => a - b);
+
+          function levelForRow(r) {
+            let x = null;
+            try { x = r.input.getBoundingClientRect().left; } catch (_) {}
+            if (typeof x !== "number" || !buckets.length) return 0;
+            const idx = buckets.findIndex((b) => Math.abs(b - x) <= tol);
+            return Math.max(0, idx);
+          }
+
+          // Level colors similar to your desired screenshot.
+          const levelBg = ["#dfe6f2", "#f2e2bf", "#bfe3d2", "#d8f0ea"];
+          const levelText = "#122033";
+
+          for (const r of rows) {
+            const level = levelForRow(r);
+            const checked = !!r.input.checked;
+
+            r.row.style.display = "flex";
+            r.row.style.alignItems = "center";
+            r.row.style.justifyContent = "flex-start";
+            r.row.style.gap = "8px";
+            r.row.style.width = "100%";
+            r.row.style.boxSizing = "border-box";
+            r.row.style.margin = "4px 0";
+            r.row.style.padding = "8px 10px";
+            r.row.style.paddingLeft = `${10 + level * 20}px`;
+            r.row.style.borderRadius = "4px";
+            r.row.style.background = checked ? levelBg[Math.min(level, levelBg.length - 1)] : "transparent";
+            r.row.style.color = levelText;
+            r.row.style.fontSize = "0.95rem";
+            r.row.style.fontWeight = checked ? "600" : "500";
+            r.row.style.lineHeight = "1.35";
+
+            r.input.style.margin = "0";
+            r.input.style.flex = "0 0 auto";
+
+            if (r.textEl) {
+              r.textEl.style.margin = "0";
+              r.textEl.style.padding = "0";
+              r.textEl.style.textAlign = "left";
+              r.textEl.style.whiteSpace = "normal";
+              r.textEl.style.wordBreak = "break-word";
+            }
+          }
+
+          // Re-apply after clicks (e.g. expand/collapse) because the UI re-renders.
+          // Avoid double-binding by using a marker on the element.
+          if (!leftPanel.__assuntoIndentBound) {
+            leftPanel.__assuntoIndentBound = true;
+            leftPanel.addEventListener(
+              "click",
+              () => {
+                // Run after the click handlers and after DOM updates.
+                requestAnimationFrame(() => {
+                  requestAnimationFrame(() => {
+                    try { fixAssuntoAlignment(leftPanel); } catch (_) {}
+                  });
+                });
+                setTimeout(() => {
+                  try { fixAssuntoAlignment(leftPanel); } catch (_) {}
+                }, 60);
+              },
+              true
+            );
+          }
+
+          // Stabilize: prevent accidental centering from parent flex/grid rules.
+          leftPanel.style.justifyItems = "start";
+          leftPanel.style.alignItems = "start";
+        }
+
+        function apply() {
+          if (window.innerWidth < MIN_DESKTOP_WIDTH) return;
+          // Only run on the exam builder route
+          const path = window.location.pathname || "";
+          if (!/gerar-prova/i.test(path)) return;
+
+          const assuntoHeading = findHeadingByText("Assunto");
+          const filtrosHeading = findHeadingByText("Filtros");
+          if (!assuntoHeading || !filtrosHeading) return;
+
+          const leftPanel = closestPanelContainer(assuntoHeading);
+          const rightPanel = closestPanelContainer(filtrosHeading);
+          if (!leftPanel || !rightPanel) return;
+
+          fixAssuntoAlignment(leftPanel);
+
+          // Resolve the real 3-column wrapper and its direct children (columns).
+          const resolved = findThreeColumnWrapperAndColumns(leftPanel, rightPanel);
+          if (!resolved) return;
+          const { wrapper, leftCol, centerCol, rightCol } = resolved;
+
+          // Expand the page container so the exam builder uses full width.
+          // Many layouts wrap content in a centered max-width container, which creates
+          // the blank space you're seeing.
+          (function expandAncestorsToFullWidth(el) {
+            let cur = el;
+            for (let i = 0; i < 8 && cur && cur !== document.body; i++) {
+              try {
+                const cs = window.getComputedStyle(cur);
+                const hasMaxWidth = cs.maxWidth && cs.maxWidth !== "none" && cs.maxWidth !== "0px";
+                const isCentered =
+                  (cs.marginLeft === "auto" && cs.marginRight === "auto") ||
+                  (cs.left === "auto" && cs.right === "auto");
+                if (hasMaxWidth || isCentered) {
+                  cur.style.maxWidth = "none";
+                  cur.style.width = "100%";
+                  cur.style.marginLeft = "0";
+                  cur.style.marginRight = "0";
+                }
+              } catch (_) {}
+              cur = cur.parentElement;
+            }
+          })(wrapper);
+
+          // Use a 3-column grid so the center column is truly centered between sides.
+          wrapper.style.display = "grid";
+          wrapper.style.width = "100%";
+          wrapper.style.maxWidth = "100%";
+          wrapper.style.alignItems = "start";
+          wrapper.style.columnGap = wrapper.style.columnGap || "16px";
+          wrapper.style.gridTemplateColumns = `${LEFT_WIDTH_PX}px minmax(0, 1fr) ${RIGHT_WIDTH_PX}px`;
+
+          // Lock side columns to the configured widths.
+          const leftWidthValue = `${LEFT_WIDTH_PX}px`;
+          leftCol.style.width = leftWidthValue;
+          leftCol.style.maxWidth = leftWidthValue;
+          leftCol.style.minWidth = leftWidthValue;
+          leftCol.style.margin = "0";
+          leftCol.style.gridColumn = "1";
+
+          const rightWidthValue = `${RIGHT_WIDTH_PX}px`;
+          rightCol.style.width = rightWidthValue;
+          rightCol.style.maxWidth = rightWidthValue;
+          rightCol.style.minWidth = rightWidthValue;
+          rightCol.style.margin = "0";
+          rightCol.style.gridColumn = "3";
+
+          centerCol.style.width = "100%";
+          centerCol.style.minWidth = "0";
+          centerCol.style.margin = "0";
+          centerCol.style.gridColumn = "2";
+
+          // Let cards inside the columns expand to full column width.
+          for (const panel of [leftPanel, rightPanel]) {
+            panel.style.width = "100%";
+            panel.style.maxWidth = "100%";
+            panel.style.minWidth = "0";
+            panel.style.flex = "1 1 auto";
+          }
+
+          // Make sure wrapper children don't overflow into each other.
+          for (const col of [leftCol, centerCol, rightCol]) {
+            col.style.minWidth = col.style.minWidth || "0";
+            col.style.boxSizing = "border-box";
+          }
+        }
+
+        // React SPA: route changes without reload.
+        let scheduled = false;
+        function schedule() {
+          if (scheduled) return;
+          scheduled = true;
+          requestAnimationFrame(() => {
+            scheduled = false;
+            apply();
+          });
+        }
+
+        const mo = new MutationObserver(schedule);
+        document.addEventListener("DOMContentLoaded", schedule);
+        window.addEventListener("resize", schedule);
+        window.addEventListener("popstate", schedule);
+        window.addEventListener("hashchange", schedule);
+
+        // Hook history API for client-side routing
+        const origPushState = history.pushState;
+        history.pushState = function () {
+          // @ts-ignore
+          const ret = origPushState.apply(this, arguments);
+          schedule();
+          return ret;
+        };
+        const origReplaceState = history.replaceState;
+        history.replaceState = function () {
+          // @ts-ignore
+          const ret = origReplaceState.apply(this, arguments);
+          schedule();
+          return ret;
+        };
+
+        mo.observe(document.documentElement, { childList: true, subtree: true });
+        schedule();
+      })();
+    </script>
   </body>
 </html>
