@@ -64,89 +64,73 @@ class QuestaoViewSet(viewsets.ModelViewSet):
             categoria_ids_int = []
         
         # Lógica: Se há áreas E unidades/tópicos selecionados, fazer OR entre combinações
-        # Exemplo: (área=Matemática) OU (área=Química E unidade=Química Orgânica)
+        # por área. Para cada área, combinar com AND os níveis pedidos (área → unidade →
+        # tópico → subtópico → categoria), sem parar no primeiro nível — senão, por exemplo,
+        # unidade + subtópico ignorava o subtópico e voltava todas as questões da unidade
+        # (resposta enorme + renderização de LaTeX no serializer ≈ “carrega para sempre”).
         if area_ids_int and (unidade_ids_int or topico_ids_int or subtopico_ids_int or categoria_ids_int):
-            from app.models import Conteudo
-            
-            # Para cada área, criar uma condição que inclui a área E seus filhos selecionados
             area_conditions = []
-            
+            impossible = Q(pk__in=[])
+
             for area_id in area_ids_int:
                 area_q = Q(area_id=area_id)
-                has_children_filter = False
-                
-                # Verificar se há unidades desta área selecionadas
+
+                unidades_qs = Conteudo.objects.filter(tipo='unidade', pai_id=area_id)
                 if unidade_ids_int:
-                    unidades_da_area = list(Conteudo.objects.filter(
-                        tipo='unidade', 
-                        pai_id=area_id, 
-                        id__in=unidade_ids_int
-                    ).values_list('id', flat=True))
-                    if unidades_da_area:
-                        area_q &= Q(unidade_id__in=unidades_da_area)
-                        has_children_filter = True
-                
-                # Verificar se há tópicos de unidades desta área selecionados
-                if topico_ids_int and not has_children_filter:
-                    unidades_da_area = Conteudo.objects.filter(
-                        tipo='unidade', 
-                        pai_id=area_id
-                    ).values_list('id', flat=True)
-                    topicos_da_area = list(Conteudo.objects.filter(
-                        tipo='topico',
-                        pai_id__in=unidades_da_area,
-                        id__in=topico_ids_int
-                    ).values_list('id', flat=True))
-                    if topicos_da_area:
-                        area_q &= Q(topico_id__in=topicos_da_area)
-                        has_children_filter = True
-                
-                # Verificar se há subtópicos de tópicos desta área selecionados
-                if subtopico_ids_int and not has_children_filter:
-                    unidades_da_area = Conteudo.objects.filter(
-                        tipo='unidade', 
-                        pai_id=area_id
-                    ).values_list('id', flat=True)
-                    topicos_da_area = Conteudo.objects.filter(
-                        tipo='topico',
-                        pai_id__in=unidades_da_area
-                    ).values_list('id', flat=True)
-                    subtopicos_da_area = list(Conteudo.objects.filter(
-                        tipo='subtopico',
-                        pai_id__in=topicos_da_area,
-                        id__in=subtopico_ids_int
-                    ).values_list('id', flat=True))
-                    if subtopicos_da_area:
-                        area_q &= Q(subtopico_id__in=subtopicos_da_area)
-                        has_children_filter = True
-                
-                # Verificar se há categorias de subtópicos desta área selecionadas
-                if categoria_ids_int and not has_children_filter:
-                    unidades_da_area = Conteudo.objects.filter(
-                        tipo='unidade', 
-                        pai_id=area_id
-                    ).values_list('id', flat=True)
-                    topicos_da_area = Conteudo.objects.filter(
-                        tipo='topico',
-                        pai_id__in=unidades_da_area
-                    ).values_list('id', flat=True)
-                    subtopicos_da_area = Conteudo.objects.filter(
-                        tipo='subtopico',
-                        pai_id__in=topicos_da_area
-                    ).values_list('id', flat=True)
-                    categorias_da_area = list(Conteudo.objects.filter(
-                        tipo='categoria',
-                        pai_id__in=subtopicos_da_area,
-                        id__in=categoria_ids_int
-                    ).values_list('id', flat=True))
-                    if categorias_da_area:
-                        area_q &= Q(categoria_id__in=categorias_da_area)
-                        has_children_filter = True
-                
-                # Se não há filhos desta área selecionados, incluir todas as questões desta área
+                    unidades_qs = unidades_qs.filter(id__in=unidade_ids_int)
+                unidade_id_list = list(unidades_qs.values_list('id', flat=True))
+
+                if unidade_ids_int and not unidade_id_list:
+                    area_conditions.append(impossible)
+                    continue
+
+                topicos_qs = Conteudo.objects.filter(
+                    tipo='topico',
+                    pai_id__in=unidade_id_list,
+                )
+                if topico_ids_int:
+                    topicos_qs = topicos_qs.filter(id__in=topico_ids_int)
+                topico_id_list = list(topicos_qs.values_list('id', flat=True))
+
+                if topico_ids_int and not topico_id_list:
+                    area_conditions.append(impossible)
+                    continue
+
+                subtopicos_qs = Conteudo.objects.filter(
+                    tipo='subtopico',
+                    pai_id__in=topico_id_list,
+                )
+                if subtopico_ids_int:
+                    subtopicos_qs = subtopicos_qs.filter(id__in=subtopico_ids_int)
+                subtopico_id_list = list(subtopicos_qs.values_list('id', flat=True))
+
+                if subtopico_ids_int and not subtopico_id_list:
+                    area_conditions.append(impossible)
+                    continue
+
+                categorias_qs = Conteudo.objects.filter(
+                    tipo='categoria',
+                    pai_id__in=subtopico_id_list,
+                )
+                if categoria_ids_int:
+                    categorias_qs = categorias_qs.filter(id__in=categoria_ids_int)
+                categoria_id_list = list(categorias_qs.values_list('id', flat=True))
+
+                if categoria_ids_int and not categoria_id_list:
+                    area_conditions.append(impossible)
+                    continue
+
+                if unidade_ids_int:
+                    area_q &= Q(unidade_id__in=unidade_id_list)
+                if topico_ids_int:
+                    area_q &= Q(topico_id__in=topico_id_list)
+                if subtopico_ids_int:
+                    area_q &= Q(subtopico_id__in=subtopico_id_list)
+                if categoria_ids_int:
+                    area_q &= Q(categoria_id__in=categoria_id_list)
+
                 area_conditions.append(area_q)
-            
-            # Combinar todas as condições com OR
+
             if area_conditions:
                 combined_q = area_conditions[0]
                 for condition in area_conditions[1:]:

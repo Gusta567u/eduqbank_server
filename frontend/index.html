@@ -33,8 +33,7 @@
   <body>
     <div id="root"></div>
     <script>
-      // Layout override for "Montar prova" screen:
-      // tune 3-column layout on desktop.
+      // /gerar-prova (desktop): grid 3 colunas (Assunto | centro | Filtros) + largura total.
       (function () {
         const LEFT_WIDTH_PX = 320;  // Assunto (bigger)
         const RIGHT_WIDTH_PX = 260; // Finalizar prova + Filtros
@@ -67,31 +66,6 @@
             el = el.parentElement;
           }
           return fromEl?.parentElement || null;
-        }
-
-        function hasTextWithin(container, expected) {
-          if (!container) return false;
-          const t = (container.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
-          return t.includes(expected.toLowerCase());
-        }
-
-        function findColumnForPanel(panel, mustContainText) {
-          // We want the *column* that contains the panel (right column contains both
-          // "Finalizar prova" and "Filtros" cards). Climb up until we find a parent
-          // that has multiple children (stacked cards) or matches the mustContainText.
-          let el = panel;
-          for (let i = 0; i < 12 && el; i++) {
-            if (mustContainText && hasTextWithin(el, mustContainText)) return el;
-            const parent = el.parentElement;
-            if (!parent) break;
-            // Heuristic: a column container often has 2+ children (cards).
-            if (parent.children && parent.children.length >= 2) {
-              // If the parent also contains the mustContainText, treat it as the column.
-              if (!mustContainText || hasTextWithin(parent, mustContainText)) return parent;
-            }
-            el = parent;
-          }
-          return panel;
         }
 
         function getAncestors(el) {
@@ -134,119 +108,6 @@
           return null;
         }
 
-        function fixAssuntoAlignment(leftPanel) {
-          if (!leftPanel) return;
-
-          // Full visual redesign for "Assunto" as a tree.
-          leftPanel.style.textAlign = "left";
-          leftPanel.style.paddingLeft = "14px";
-          leftPanel.style.paddingRight = "14px";
-
-          function findRowForInput(input) {
-            let el = input.parentElement;
-            while (el && el !== leftPanel) {
-              const boxes = el.querySelectorAll ? el.querySelectorAll("input[type='checkbox']") : [];
-              if (boxes && boxes.length === 1 && (el.textContent || "").trim()) return el;
-              el = el.parentElement;
-            }
-            return input.closest("label") || input.parentElement;
-          }
-
-          const checkboxInputs = Array.from(leftPanel.querySelectorAll("input[type='checkbox']"));
-          const rows = [];
-          for (const input of checkboxInputs) {
-            const row = findRowForInput(input);
-            if (!row || rows.some((r) => r.row === row)) continue;
-            const textEl =
-              (input.nextElementSibling && input.nextElementSibling.tagName !== "INPUT")
-                ? input.nextElementSibling
-                : Array.from(row.children).find((c) => c !== input && c.tagName !== "INPUT") || null;
-            rows.push({ row, input, textEl });
-          }
-
-          // Measure natural X levels from checkbox positions.
-          const xs = rows
-            .map((r) => {
-              try { return r.input.getBoundingClientRect().left; } catch (_) { return null; }
-            })
-            .filter((x) => typeof x === "number");
-          const buckets = [];
-          const tol = 6;
-          for (const x of xs) {
-            if (buckets.findIndex((b) => Math.abs(b - x) <= tol) === -1) buckets.push(x);
-          }
-          buckets.sort((a, b) => a - b);
-
-          function levelForRow(r) {
-            let x = null;
-            try { x = r.input.getBoundingClientRect().left; } catch (_) {}
-            if (typeof x !== "number" || !buckets.length) return 0;
-            const idx = buckets.findIndex((b) => Math.abs(b - x) <= tol);
-            return Math.max(0, idx);
-          }
-
-          // Level colors similar to your desired screenshot.
-          const levelBg = ["#dfe6f2", "#f2e2bf", "#bfe3d2", "#d8f0ea"];
-          const levelText = "#122033";
-
-          for (const r of rows) {
-            const level = levelForRow(r);
-            const checked = !!r.input.checked;
-
-            r.row.style.display = "flex";
-            r.row.style.alignItems = "center";
-            r.row.style.justifyContent = "flex-start";
-            r.row.style.gap = "8px";
-            r.row.style.width = "100%";
-            r.row.style.boxSizing = "border-box";
-            r.row.style.margin = "4px 0";
-            r.row.style.padding = "8px 10px";
-            r.row.style.paddingLeft = `${10 + level * 20}px`;
-            r.row.style.borderRadius = "4px";
-            r.row.style.background = checked ? levelBg[Math.min(level, levelBg.length - 1)] : "transparent";
-            r.row.style.color = levelText;
-            r.row.style.fontSize = "0.95rem";
-            r.row.style.fontWeight = checked ? "600" : "500";
-            r.row.style.lineHeight = "1.35";
-
-            r.input.style.margin = "0";
-            r.input.style.flex = "0 0 auto";
-
-            if (r.textEl) {
-              r.textEl.style.margin = "0";
-              r.textEl.style.padding = "0";
-              r.textEl.style.textAlign = "left";
-              r.textEl.style.whiteSpace = "normal";
-              r.textEl.style.wordBreak = "break-word";
-            }
-          }
-
-          // Re-apply after clicks (e.g. expand/collapse) because the UI re-renders.
-          // Avoid double-binding by using a marker on the element.
-          if (!leftPanel.__assuntoIndentBound) {
-            leftPanel.__assuntoIndentBound = true;
-            leftPanel.addEventListener(
-              "click",
-              () => {
-                // Run after the click handlers and after DOM updates.
-                requestAnimationFrame(() => {
-                  requestAnimationFrame(() => {
-                    try { fixAssuntoAlignment(leftPanel); } catch (_) {}
-                  });
-                });
-                setTimeout(() => {
-                  try { fixAssuntoAlignment(leftPanel); } catch (_) {}
-                }, 60);
-              },
-              true
-            );
-          }
-
-          // Stabilize: prevent accidental centering from parent flex/grid rules.
-          leftPanel.style.justifyItems = "start";
-          leftPanel.style.alignItems = "start";
-        }
-
         function apply() {
           if (window.innerWidth < MIN_DESKTOP_WIDTH) return;
           // Only run on the exam builder route
@@ -260,8 +121,6 @@
           const leftPanel = closestPanelContainer(assuntoHeading);
           const rightPanel = closestPanelContainer(filtrosHeading);
           if (!leftPanel || !rightPanel) return;
-
-          fixAssuntoAlignment(leftPanel);
 
           // Resolve the real 3-column wrapper and its direct children (columns).
           const resolved = findThreeColumnWrapperAndColumns(leftPanel, rightPanel);
