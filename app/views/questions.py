@@ -36,166 +36,373 @@ class QuestaoViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         from django.db.models import Q
+
         queryset = Questao.objects.all()
-        
-        search = self.request.query_params.get('search', None)
+
+        # ============================================================
+        # BUSCA
+        # ============================================================
+
+        search = self.request.query_params.get('search')
+
         if search:
-            queryset = queryset.filter(enunciado__icontains=search)
-        
-        # Suporte para múltipla seleção usando listas
-        area_ids = self.request.query_params.getlist('area_id') or self.request.query_params.getlist('area_ids')
-        unidade_ids = self.request.query_params.getlist('unidade_id') or self.request.query_params.getlist('unidade_ids')
-        topico_ids = self.request.query_params.getlist('topico_id') or self.request.query_params.getlist('topico_ids')
-        subtopico_ids = self.request.query_params.getlist('subtopico_id') or self.request.query_params.getlist('subtopico_ids')
-        categoria_ids = self.request.query_params.getlist('categoria_id') or self.request.query_params.getlist('categoria_ids')
-        
-        # Converter para inteiros
-        try:
-            area_ids_int = [int(aid) for aid in area_ids] if area_ids else []
-            unidade_ids_int = [int(uid) for uid in unidade_ids] if unidade_ids else []
-            topico_ids_int = [int(tid) for tid in topico_ids] if topico_ids else []
-            subtopico_ids_int = [int(sid) for sid in subtopico_ids] if subtopico_ids else []
-            categoria_ids_int = [int(cid) for cid in categoria_ids] if categoria_ids else []
-        except ValueError:
-            area_ids_int = []
-            unidade_ids_int = []
-            topico_ids_int = []
-            subtopico_ids_int = []
-            categoria_ids_int = []
-        
-        # Lógica: Se há áreas E unidades/tópicos selecionados, fazer OR entre combinações
-        # por área. Para cada área, combinar com AND os níveis pedidos (área → unidade →
-        # tópico → subtópico → categoria), sem parar no primeiro nível — senão, por exemplo,
-        # unidade + subtópico ignorava o subtópico e voltava todas as questões da unidade
-        # (resposta enorme + renderização de LaTeX no serializer ≈ “carrega para sempre”).
-        if area_ids_int and (unidade_ids_int or topico_ids_int or subtopico_ids_int or categoria_ids_int):
-            area_conditions = []
-            impossible = Q(pk__in=[])
+            queryset = queryset.filter(
+                enunciado__icontains=search
+            )
+
+        # ============================================================
+        # IDS DOS FILTROS
+        # ============================================================
+
+        area_ids = (
+            self.request.query_params.getlist('area_id')
+            or self.request.query_params.getlist('area_ids')
+        )
+
+        unidade_ids = (
+            self.request.query_params.getlist('unidade_id')
+            or self.request.query_params.getlist('unidade_ids')
+        )
+
+        topico_ids = (
+            self.request.query_params.getlist('topico_id')
+            or self.request.query_params.getlist('topico_ids')
+        )
+
+        subtopico_ids = (
+            self.request.query_params.getlist('subtopico_id')
+            or self.request.query_params.getlist('subtopico_ids')
+        )
+
+        categoria_ids = (
+            self.request.query_params.getlist('categoria_id')
+            or self.request.query_params.getlist('categoria_ids')
+        )
+
+        # ============================================================
+        # CONVERTER IDS PARA INT
+        # ============================================================
+
+        def parse_ids(values):
+            result = []
+
+            for value in values:
+                try:
+                    result.append(int(value))
+                except (ValueError, TypeError):
+                    pass
+
+            return result
+
+        area_ids_int = parse_ids(area_ids)
+        unidade_ids_int = parse_ids(unidade_ids)
+        topico_ids_int = parse_ids(topico_ids)
+        subtopico_ids_int = parse_ids(subtopico_ids)
+        categoria_ids_int = parse_ids(categoria_ids)
+
+        # ============================================================
+        # FILTRO HIERÁRQUICO
+        #
+        # Cada seleção de nível superior pode coexistir com seleções
+        # de outras áreas.
+        #
+        # Exemplo:
+        #
+        # área 1 + unidade 1
+        # OU
+        # área 2
+        #
+        # ============================================================
+
+        hierarchy_q = Q()
+
+        # ------------------------------------------------------------
+        # CASO 1:
+        # Existe alguma seleção de área
+        # ------------------------------------------------------------
+
+        if area_ids_int:
 
             for area_id in area_ids_int:
+
                 area_q = Q(area_id=area_id)
 
-                unidades_qs = Conteudo.objects.filter(tipo='unidade', pai_id=area_id)
-                if unidade_ids_int:
-                    unidades_qs = unidades_qs.filter(id__in=unidade_ids_int)
-                unidade_id_list = list(unidades_qs.values_list('id', flat=True))
+                # ====================================================
+                # UNIDADES PERTENCENTES À ÁREA
+                # ====================================================
 
-                if unidade_ids_int and not unidade_id_list:
-                    area_conditions.append(impossible)
-                    continue
+                unidades_da_area = Conteudo.objects.filter(
+                    tipo='unidade',
+                    pai_id=area_id
+                )
 
-                topicos_qs = Conteudo.objects.filter(
+                unidades_da_area_ids = list(
+                    unidades_da_area.values_list('id', flat=True)
+                )
+
+                unidades_selecionadas_da_area = [
+                    uid
+                    for uid in unidade_ids_int
+                    if uid in unidades_da_area_ids
+                ]
+
+                # ====================================================
+                # TÓPICOS PERTENCENTES ÀS UNIDADES DA ÁREA
+                # ====================================================
+
+                topicos_da_area = Conteudo.objects.filter(
                     tipo='topico',
-                    pai_id__in=unidade_id_list,
+                    pai_id__in=unidades_da_area_ids
                 )
-                if topico_ids_int:
-                    topicos_qs = topicos_qs.filter(id__in=topico_ids_int)
-                topico_id_list = list(topicos_qs.values_list('id', flat=True))
 
-                if topico_ids_int and not topico_id_list:
-                    area_conditions.append(impossible)
-                    continue
+                topicos_da_area_ids = list(
+                    topicos_da_area.values_list('id', flat=True)
+                )
 
-                subtopicos_qs = Conteudo.objects.filter(
+                topicos_selecionados_da_area = [
+                    tid
+                    for tid in topico_ids_int
+                    if tid in topicos_da_area_ids
+                ]
+
+                # ====================================================
+                # SUBTÓPICOS PERTENCENTES À ÁREA
+                # ====================================================
+
+                subtopicos_da_area = Conteudo.objects.filter(
                     tipo='subtopico',
-                    pai_id__in=topico_id_list,
+                    pai_id__in=topicos_da_area_ids
                 )
-                if subtopico_ids_int:
-                    subtopicos_qs = subtopicos_qs.filter(id__in=subtopico_ids_int)
-                subtopico_id_list = list(subtopicos_qs.values_list('id', flat=True))
 
-                if subtopico_ids_int and not subtopico_id_list:
-                    area_conditions.append(impossible)
-                    continue
+                subtopicos_da_area_ids = list(
+                    subtopicos_da_area.values_list('id', flat=True)
+                )
 
-                categorias_qs = Conteudo.objects.filter(
+                subtopicos_selecionados_da_area = [
+                    sid
+                    for sid in subtopico_ids_int
+                    if sid in subtopicos_da_area_ids
+                ]
+
+                # ====================================================
+                # CATEGORIAS PERTENCENTES À ÁREA
+                # ====================================================
+
+                categorias_da_area = Conteudo.objects.filter(
                     tipo='categoria',
-                    pai_id__in=subtopico_id_list,
+                    pai_id__in=subtopicos_da_area_ids
                 )
-                if categoria_ids_int:
-                    categorias_qs = categorias_qs.filter(id__in=categoria_ids_int)
-                categoria_id_list = list(categorias_qs.values_list('id', flat=True))
 
-                if categoria_ids_int and not categoria_id_list:
-                    area_conditions.append(impossible)
-                    continue
+                categorias_da_area_ids = list(
+                    categorias_da_area.values_list('id', flat=True)
+                )
 
-                if unidade_ids_int:
-                    area_q &= Q(unidade_id__in=unidade_id_list)
-                if topico_ids_int:
-                    area_q &= Q(topico_id__in=topico_id_list)
-                if subtopico_ids_int:
-                    area_q &= Q(subtopico_id__in=subtopico_id_list)
-                if categoria_ids_int:
-                    area_q &= Q(categoria_id__in=categoria_id_list)
+                categorias_selecionadas_da_area = [
+                    cid
+                    for cid in categoria_ids_int
+                    if cid in categorias_da_area_ids
+                ]
 
-                area_conditions.append(area_q)
+                # ====================================================
+                # AGORA DEFINIMOS O FILTRO DESTA ÁREA
+                # ====================================================
 
-            if area_conditions:
-                combined_q = area_conditions[0]
-                for condition in area_conditions[1:]:
-                    combined_q |= condition
-                queryset = queryset.filter(combined_q)
+                # ----------------------------------------------------
+                # Se há unidade selecionada DENTRO desta área
+                # ----------------------------------------------------
+
+                if unidades_selecionadas_da_area:
+
+                    area_q &= Q(
+                        unidade_id__in=unidades_selecionadas_da_area
+                    )
+
+                # ----------------------------------------------------
+                # Se há tópico selecionado DENTRO desta área
+                # ----------------------------------------------------
+
+                if topicos_selecionados_da_area:
+
+                    area_q &= Q(
+                        topico_id__in=topicos_selecionados_da_area
+                    )
+
+                # ----------------------------------------------------
+                # Se há subtópico selecionado DENTRO desta área
+                # ----------------------------------------------------
+
+                if subtopicos_selecionados_da_area:
+
+                    area_q &= Q(
+                        subtopico_id__in=subtopicos_selecionados_da_area
+                    )
+
+                # ----------------------------------------------------
+                # Se há categoria selecionada DENTRO desta área
+                # ----------------------------------------------------
+
+                if categorias_selecionadas_da_area:
+
+                    area_q &= Q(
+                        categoria_id__in=categorias_selecionadas_da_area
+                    )
+
+                # ----------------------------------------------------
+                # IMPORTANTE:
+                #
+                # Se a área não possui nenhum filtro filho selecionado,
+                # ela continua inteira.
+                #
+                # Ex:
+                #
+                # área 1 + unidade 1
+                # área 2
+                #
+                # vira:
+                #
+                # (área 1 AND unidade 1)
+                # OR
+                # (área 2)
+                # ----------------------------------------------------
+
+                hierarchy_q |= area_q
+
+            queryset = queryset.filter(hierarchy_q)
+
+        # ============================================================
+        # CASO 2:
+        # Não existe área selecionada
+        #
+        # Nesse caso os filtros filhos funcionam normalmente.
+        # ============================================================
+
         else:
-            # Comportamento padrão: AND entre diferentes tipos de filtros
-            if area_ids_int:
-                queryset = queryset.filter(area_id__in=area_ids_int)
+
             if unidade_ids_int:
-                queryset = queryset.filter(unidade_id__in=unidade_ids_int)
+                queryset = queryset.filter(
+                    unidade_id__in=unidade_ids_int
+                )
+
             if topico_ids_int:
-                queryset = queryset.filter(topico_id__in=topico_ids_int)
+                queryset = queryset.filter(
+                    topico_id__in=topico_ids_int
+                )
+
             if subtopico_ids_int:
-                queryset = queryset.filter(subtopico_id__in=subtopico_ids_int)
+                queryset = queryset.filter(
+                    subtopico_id__in=subtopico_ids_int
+                )
+
             if categoria_ids_int:
-                queryset = queryset.filter(categoria_id__in=categoria_ids_int)
-        
+                queryset = queryset.filter(
+                    categoria_id__in=categoria_ids_int
+                )
+
+        # ============================================================
+        # ANO
+        # ============================================================
+
         anos = self.request.query_params.getlist('ano')
+
         if anos:
-            try:
-                anos_int = [int(a) for a in anos]
-                queryset = queryset.filter(ano__in=anos_int)
-            except ValueError:
-                pass
-        
+
+            anos_int = parse_ids(anos)
+
+            if anos_int:
+                queryset = queryset.filter(
+                    ano__in=anos_int
+                )
+
+        # ============================================================
+        # BANCA
+        # ============================================================
+
         bancas = self.request.query_params.getlist('banca')
+
         if bancas:
-            # Filtro robusto contra inconsistências de caixa (ENEM vs Enem, etc.)
+
             banca_q = Q()
-            for b in bancas:
-                if b is None:
-                    continue
-                b_norm = str(b).strip()
-                if not b_norm:
-                    continue
-                banca_q |= Q(banca__iexact=b_norm)
+
+            for banca in bancas:
+
+                banca = str(banca).strip()
+
+                if banca:
+                    banca_q |= Q(
+                        banca__iexact=banca
+                    )
+
             if banca_q:
                 queryset = queryset.filter(banca_q)
-        
-        tipos_questao = self.request.query_params.getlist('tipo_questao')
+
+        # ============================================================
+        # TIPO DE QUESTÃO
+        # ============================================================
+
+        tipos_questao = self.request.query_params.getlist(
+            'tipo_questao'
+        )
+
         if tipos_questao:
-            queryset = queryset.filter(tipo_questao__in=tipos_questao)
-        
-        dificuldades = self.request.query_params.getlist('dificuldade')
+
+            queryset = queryset.filter(
+                tipo_questao__in=tipos_questao
+            )
+
+        # ============================================================
+        # DIFICULDADE
+        # ============================================================
+
+        dificuldades = self.request.query_params.getlist(
+            'dificuldade'
+        )
+
         if dificuldades:
-            queryset = queryset.filter(dificuldade__in=dificuldades)
-        
-        graus_escolaridade = self.request.query_params.getlist('grau_escolaridade')
+
+            queryset = queryset.filter(
+                dificuldade__in=dificuldades
+            )
+
+        # ============================================================
+        # GRAU DE ESCOLARIDADE
+        # ============================================================
+
+        graus_escolaridade = self.request.query_params.getlist(
+            'grau_escolaridade'
+        )
+
         if graus_escolaridade:
-            queryset = queryset.filter(grau_escolaridade__in=graus_escolaridade)
-        
-        tem_imagem = self.request.query_params.get('tem_imagem', None)
+
+            queryset = queryset.filter(
+                grau_escolaridade__in=graus_escolaridade
+            )
+
+        # ============================================================
+        # TEM IMAGEM
+        # ============================================================
+
+        tem_imagem = self.request.query_params.get(
+            'tem_imagem'
+        )
+
         if tem_imagem is not None:
+
             if tem_imagem.lower() == 'true':
-                # Questões que têm imagem no enunciado ou resposta
+
                 queryset = queryset.filter(
-                    Q(enunciado__icontains='<img') | Q(resposta__icontains='<img')
+                    Q(enunciado__icontains='<img')
+                    |
+                    Q(resposta__icontains='<img')
                 )
+
             elif tem_imagem.lower() == 'false':
-                # Questões que não têm imagem
+
                 queryset = queryset.exclude(
-                    Q(enunciado__icontains='<img') | Q(resposta__icontains='<img')
+                    Q(enunciado__icontains='<img')
+                    |
+                    Q(resposta__icontains='<img')
                 )
-        
+
         return queryset
 
 
