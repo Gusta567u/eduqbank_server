@@ -26,22 +26,21 @@ class Questao(models.Model):
     subtopico = models.ForeignKey('Conteudo', on_delete=models.PROTECT, related_name='q_subtopico', null=True, blank=True)
     categoria = models.ForeignKey('Conteudo', on_delete=models.PROTECT, related_name='q_categoria', null=True, blank=True)
 
-    ano = models.IntegerField()
-    banca = models.CharField(max_length=100)
-    tipo_questao = models.CharField(max_length=50)
-    dificuldade = models.CharField(max_length=20)
+    ano = models.IntegerField(db_index=True)
+    banca = models.CharField(max_length=100, db_index=True)
+    tipo_questao = models.CharField(max_length=50, db_index=True)
+    dificuldade = models.CharField(max_length=20, db_index=True)
     
     GRAU_ESCOLARIDADE_CHOICES = [
         ('fundamental', 'Ensino Fundamental'),
         ('medio', 'Ensino Médio'),
         ('superior', 'Ensino Superior'),
     ]
-    grau_escolaridade = models.CharField(max_length=20, choices=GRAU_ESCOLARIDADE_CHOICES)
+    grau_escolaridade = models.CharField(max_length=20, choices=GRAU_ESCOLARIDADE_CHOICES, db_index=True)
     
     enunciado = RichTextUploadingField('Enunciado')
     resposta = RichTextUploadingField('Resposta')
     resposta_gabarito = RichTextUploadingField('Resposta Gabarito', blank=True, null=True)
-
 
 class AboutImage(models.Model):
     image = models.ImageField(upload_to='about/')
