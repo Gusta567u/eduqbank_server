@@ -9,7 +9,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from app.models import Questao, Conteudo
 from app.forms import QuestaoForm
-from app.serializers import QuestaoSerializer
+from app.serializers import (QuestaoSerializer, QuestaoListSerializer,)
 
 
 class QuestaoList(generics.ListAPIView):
@@ -27,17 +27,24 @@ class QuestaoViewSet(viewsets.ModelViewSet):
     serializer_class = QuestaoSerializer
     
     def get_permissions(self):
-        """
-        Instantiates and returns the list of permissions that this view requires.
-        All actions require authentication.
-        """
         permission_classes = [IsAuthenticated]
         return [permission() for permission in permission_classes]
     
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return QuestaoListSerializer
+        return QuestaoSerializer
+
     def get_queryset(self):
         from django.db.models import Q
 
-        queryset = Questao.objects.all()
+        queryset = Questao.objects.select_related(
+            'area',
+            'unidade',
+            'topico',
+            'subtopico',
+            'categoria',
+        )
 
         # ============================================================
         # BUSCA
